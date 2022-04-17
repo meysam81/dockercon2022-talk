@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  svc3:
+    image: meysam81/dockercon2022-svc-3
+    restart: unless-stopped
+    env_file:
+      - ./.env.svc3
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc3.rule=Host(`svc-crud.dockercon2022.com`) && PathPrefix(`/v1`, `/docs`, `/openapi.json`)"
+    depends_on:
+      - svc3-migrate
+      - postgres
+    networks:
+      - svc3
+      - postgres
+
+  svc3-migrate:
+    image: meysam81/dockercon2022-svc-3
+    command: alembic upgrade head
+    restart: on-failure
+    env_file:
+      - ./.env.svc3
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=false"
+    depends_on:
+      - postgres
+    networks:
+      - svc3
+      - postgres
+
+
+networks:
+  svc3:
+  postgres:
+    external: true

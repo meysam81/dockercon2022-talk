@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  gateway:
+    image: traefik:v2.6
+    command: --api.insecure=true --providers.docker --log=true --log.level=INFO --log.format=json
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    network_mode: "host"
+    labels:
+      - "traefik.enable=false"

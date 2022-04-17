@@ -1,0 +1,63 @@
+version: "3.8"
+
+services:
+  svc:
+    image: meysam81/dockercon2022-svc-3
+    build:
+      context: .
+      target: dev
+    restart: unless-stopped
+    env_file:
+      - ./deploy/docker.env
+    environment:
+      - PORT=8000
+      - DEBUG=1
+      - APP_PREFIX
+      - DB_CONNECTION_STRING=postgresql://dockercon2022:dockercon2022@postgres:5432/dockercon2022
+    volumes:
+      - "./app:/service/app:ro"
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc${SVC_ID}.rule=Host(`svc-crud.dockercon2022.com`) && PathPrefix(`${APP_PREFIX}`, `/docs`, `/openapi.json`)"
+    depends_on:
+      - svc-migrate
+      - postgres
+
+  svc-migrate:
+    image: meysam81/dockercon2022-svc-3
+    build:
+      context: .
+      target: dev
+    command: alembic upgrade head
+    restart: on-failure
+    env_file:
+      - ./deploy/docker.env
+    environment:
+      - DB_CONNECTION_STRING=postgresql://dockercon2022:dockercon2022@postgres:5432/dockercon2022
+    volumes:
+      - "./alembic.ini:/service/alembic.ini:ro"
+      - "./migrations:/service/migrations:ro"
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=false"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=dockercon2022
+      - POSTGRES_PASSWORD=dockercon2022
+      - POSTGRES_DB=dockercon2022
+    expose:
+      - "5432"
+    volumes:
+      - "postgres-data:/var/lib/postgresql/data"
+    labels:
+      - "traefik.enable=false"
+
+volumes:
+  postgres-data:

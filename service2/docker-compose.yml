@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  svc:
+    image: meysam81/dockercon2022-svc-2
+    build: .
+    restart: unless-stopped
+    env_file:
+      - ./deploy/docker.env
+    environment:
+      - PORT=8000
+      - DEBUG=1
+      - APP_PREFIX
+    volumes:
+      - "./app:/service/app:ro"
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc${SVC_ID}.rule=Host(`svc.dockercon2022.com`) && PathPrefix(`${APP_PREFIX}`, `/docs`, `/openapi.json`)"
+    extra_hosts:
+      - "svc-crud.dockercon2022.com:172.17.0.1"

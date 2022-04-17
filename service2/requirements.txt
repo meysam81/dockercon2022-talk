@@ -1,0 +1,4 @@
+aiohttp<4,>=3.8
+fastapi<1,>=0.75
+pydantic[dotenv]<2,>=1.9
+uvicorn<1,>=0.17

@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  svc2-copy:
+    image: meysam81/dockercon2022-svc-2
+    restart: unless-stopped
+    env_file:
+      - ./.env.svc2-copy
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc2-copy.rule=Host(`svc.dockercon2022.com`) && PathPrefix(`/v3`)"
+    networks:
+      - svc2
+      - svc3
+
+networks:
+  svc2:
+  svc3:
+    external: true

@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  svc2:
+    image: meysam81/dockercon2022-svc-2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-L", "--fail", "--silent", "--show-error", "--connect-timeout", "3", "--max-time", "3", "http://localhost:8000/v2/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 3s
+    env_file:
+      - ./.env.svc2
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc2.rule=Host(`svc.dockercon2022.com`) && PathPrefix(`/v2`, `/docs`, `/openapi.json`)"
+    extra_hosts:
+      - "svc-crud.dockercon2022.com:172.17.0.1"
+    networks:
+      - svc2
+
+networks:
+  svc2:

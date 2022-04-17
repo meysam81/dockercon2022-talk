@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  svc1:
+    image: meysam81/dockercon2022-svc-1
+    restart: unless-stopped
+    env_file:
+      - ./.env.svc1
+    expose:
+      - "8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.svc1.rule=Host(`svc.dockercon2022.com`) && PathPrefix(`/v1`)"
+    networks:
+      - svc1
+
+networks:
+  svc1:
