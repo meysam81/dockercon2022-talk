@@ -1,0 +1,244 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  EnvFileArn:
+    Type: String
+    Description: "the arn of the .env file on s3"
+  EnvTag:
+    Type: String
+    Default: dev
+  ServiceName:
+    Type: String
+    Default: "service1"
+  ImageUrl:
+    Type: String
+    Default: Should be initialized either by CI or the command line parameter flag
+  ContainerPort:
+    Type: Number
+    Description: What port number the application inside the docker container is binding to
+  LoadBalancerPath:
+    Type: String
+    Description: A path on the load balancer that this service
+      should be connected to. Use * to send all load balancer
+      traffic to this service.
+  LoadBalancerPriority:
+    Type: Number
+    Description: The priority for the routing rule added to the load balancer.
+      This only applies if you have multiple services which have been
+      assigned to different paths on the load balancer.
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: How many copies of the service task to run
+  HealthCheckIntervalSeconds:
+    Type: Number
+    Default: 30
+    Description: Service health check interval (ELB)
+  HealthCheckTimeoutSeconds:
+    Type: Number
+    Default: 3
+    Description: Service health check timeout (ELB)
+  DeregistrationDelay:
+    Type: String
+    Default: 5
+    Description: ECS unhealthy timeout for deregistration
+  LaunchType:
+    Type: String
+    Default: EC2
+    Description: Can be FARGATE or EC2
+  NumBackgroundWorkers:
+    Type: Number
+    Default: 4
+    Description: To have more control over configuration of the deployment
+  UploadPath:
+    Type: String
+    Default: /tmp/upload
+    Description: To make it easier to manage the storage on the infrastructure
+
+Resources:
+  # A log group for storing the stdout logs from this service's containers
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${EnvTag}-service-${ServiceName}
+
+  # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${EnvTag}-${ServiceName}
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - !Ref "LaunchType"
+      ExecutionRoleArn: # exported from another CF template
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ECSTaskExecutionRole
+      TaskRoleArn: # exported from another CF template
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ECSGeneralRole
+      ContainerDefinitions:
+        - Name: !Sub ${ServiceName}-webapp
+          Image: !Ref "ImageUrl"
+          Command: ["/bin/sh", "-c", "exec honcho start web"]
+          MemoryReservation: 256  # soft limit
+          PortMappings:
+            - ContainerPort: !Ref "ContainerPort"
+            # efs needs port 2049 to work
+            - ContainerPort: 2049
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-service-${ServiceName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Sub ${ServiceName}-webapp
+          Environment:
+            - Name: UPLOAD_PATH
+              Value: !Ref "UploadPath"
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          MountPoints:
+            - SourceVolume: SvcStorage
+              ContainerPath: !Ref "UploadPath"
+              ReadOnly: false
+        - Name: !Sub ${ServiceName}-background-worker
+          Image: !Ref "ImageUrl"
+          MemoryReservation: 256
+          Command: ["/bin/sh", "-c", "exec honcho start worker"]
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-service-${ServiceName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Sub ${ServiceName}-background-worker
+          Environment:  # when we want to overwrite variables
+            - Name: NUM_BACKGROUND_WORKERS
+              Value: !Ref "NumBackgroundWorkers"
+            - Name: UPLOAD_PATH
+              Value: !Ref "UploadPath"
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          MountPoints:
+            - SourceVolume: SvcStorage
+              ContainerPath: !Ref "UploadPath"
+              ReadOnly: false
+      Volumes:
+        - Name: SvcStorage
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref SvcEfsFileSystem
+            TransitEncryption: "ENABLED"
+            AuthorizationConfig:
+              AccessPointId: !Ref SvcEfsAccessPoint
+
+  SvcEfsFileSystem:
+    Type: AWS::EFS::FileSystem
+
+  SvcStorageMountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref SvcEfsFileSystem
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetA
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${EnvTag}-infra:EFSAccessSecurityGroup
+
+  SvcStorageMountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref SvcEfsFileSystem
+      SubnetId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetB
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${EnvTag}:EFSAccessSecurityGroup
+
+  SvcEfsAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref SvcEfsFileSystem
+      PosixUser:
+        Gid: "1000"
+        Uid: "1000"
+      RootDirectory:
+        Path: !Ref "UploadPath"
+        CreationInfo:
+          OwnerUid: "1000"
+          OwnerGid: "1000"
+          Permissions: "0774"
+
+  # The service. The service is a resource which allows you to run multiple
+  # copies of a type of task, and gather up their logs and metrics, as well
+  # as monitor the number of running tasks and replace any that have crashed
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: LoadBalancerRule
+    Properties:
+      ServiceName: !Sub ${EnvTag}-${ServiceName}
+      Cluster:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ClusterName
+      LaunchType: !Ref "LaunchType"
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      DesiredCount: !Ref "DesiredCount"
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:ContainerSecurityGroup
+          Subnets:
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetA
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetB
+      TaskDefinition: !Ref "TaskDefinition"
+      LoadBalancers:
+        - ContainerName: !Sub ${ServiceName}-webapp
+          ContainerPort: !Ref "ContainerPort"
+          TargetGroupArn: !Ref "TargetGroup"
+
+  # A target group. This is used for keeping track of all the tasks, and
+  # what IP addresses / port numbers they have. You can query it yourself,
+  # to use the addresses yourself, but most often this target group is just
+  # connected to an application load balancer, or network load balancer, so
+  # it can automatically distribute traffic across all the targets.
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: !Ref "HealthCheckIntervalSeconds"
+      HealthCheckPath: /v1/
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: !Ref "HealthCheckTimeoutSeconds"
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: !Ref "ContainerPort"
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:VPC
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref "DeregistrationDelay"
+
+  # Create a rule on the load balancer for routing traffic to the target group
+  LoadBalancerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref "TargetGroup"
+          Type: "forward"
+      Conditions:
+        - Field: path-pattern
+          Values: [!Ref "LoadBalancerPath"]
+      ListenerArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PublicListenerHttps
+      Priority: !Ref "LoadBalancerPriority"
+
+Outputs:
+  ServiceURL:
+    Value:
+      Fn::Join:
+        - ""
+        - - Fn::ImportValue: !Sub ${EnvTag}-infra:ExternalUrl
+          - !Join ["", !Split ["*", !Ref LoadBalancerPath]]
+  SvcEfsFileSystem:
+    Description: The service storage
+    Value: !Ref "SvcEfsFileSystem"
+    Export:
+      Name: !Sub ${EnvTag}:SvcEfsFileSystem

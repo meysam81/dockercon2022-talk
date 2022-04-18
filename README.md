@@ -13,6 +13,7 @@
   - [Development](#development)
   - [Dockerfile](#dockerfile)
   - [docker-compose.yml](#docker-composeyml)
+- [Bonus](#bonus)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -173,3 +174,14 @@ to change the value, you only need to change one place.
 - Use `COMPOSE_PROJECT_NAME` to group your stack under a unified hierarchy.
 This is done by default using directory name by docker, but try to take
 control instead of letting it choose for you.
+
+## Bonus
+
+As a sample, the AWS CloudFormation sample template of how the real life stack
+would be deployed has been placed inside the source code. In order to not
+pollute the config, only a single service has a cloud-formation:
+`individual-services/service1/cloudformation-templates/service1-dev.yml`
+
+Also, the complete stack CloudFormation template has also been placed inside
+the following directory:
+`entire-platform/cloudformation-templates/stack-dev.yml`

@@ -1,0 +1,454 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  EnvTag:
+    Type: String
+    Default: dev
+  ServiceOneContainerName:
+    Type: String
+    Default: service1
+  ServiceOneImageUrl:
+    Type: String
+    Description: Coming from either CI or the terminal parameter override. This
+      is generally the image that the AWS CloudFormation will have to be able
+      to access, so it's gonna be either a public image, or some private image
+      inside the ECR.
+  ServiceOneUriPrefix:
+    Type: String
+    Default: v1
+  ServiceOneContainerPort:
+    Type: Number
+    Default: 8000
+  ServiceOneLoadBalancerPriority:
+    Type: Number
+    Default: 20
+    Description: Load balancer priority has to be unique for each rule
+  DesiredCount:
+    Type: Number
+    Default: 1
+  ServiceThreeContainerName:
+    Type: String
+    Default: service3
+  ServiceThreeImageUrl:
+    Type: String
+    Description: Coming from either CI or the terminal parameter override. This
+      is generally the image that the AWS CloudFormation will have to be able
+      to access, so it's gonna be either a public image, or some private image
+      inside the ECR.
+  ServiceThreeUriPrefix:
+    Type: String
+    Default: v1
+  HealthCheckIntervalSeconds:
+    Type: Number
+    Default: 30
+  HealthCheckTimeoutSeconds:
+    Type: Number
+    Default: 10
+  ServiceThreeContainerPort:
+    Type: Number
+    Default: 9000
+  DeregistrationDelay:
+    Type: String
+    Default: 5
+  LaunchType:
+    Type: String
+    Default: EC2
+  FirstTwoServicesStackHost:
+    Type: String
+    Default: svc.dockercon2022.com
+  LastServiceStackHost:
+    Type: String
+    Default: svc-crud.dockercon2022.com
+  ServiceTwoContainerName:
+    Type: String
+    Default: service2
+  ServiceTwoImageUrl:
+    Type: String
+  ServiceTwoContainerPort:
+    Type: Number
+    Default: 7000
+    Description: To make it unique and non overlapping across services
+  ServiceTwoUriPrefix:
+    Type: String
+    Default: v2
+  ServiceThreeDatabaseName:
+    Type: String
+    Default: dockercon2022
+  ServiceTwoLoadBalancerPriority:
+    Type: Number
+    Default: 30
+  ServiceThreeLoadBalancerPriority:
+    Type: Number
+    Default: 40
+  PostgresImageUrl:
+    Type: String
+    Default: postgres:14
+  RedisImageUrl:
+    Type: String
+    Default: redis:6-alpine
+  StackName:
+    Type: String
+  MemoryReservation:
+    Type: Number
+    Default: 64
+  RedisContainerName:
+    Type: String
+    Default: redis
+  PostgresContainerName:
+    Type: String
+    Default: postgres
+  EnvFileArn:
+    Type: String
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${EnvTag}-${StackName}
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${EnvTag}-${StackName}
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - !Ref "LaunchType"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ECSTaskExecutionRole
+      TaskRoleArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ECSGeneralRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceOneContainerName
+          Image: !Ref ServiceOneImageUrl
+          MemoryReservation: !Ref MemoryReservation
+          HealthCheck:
+            Command:
+              - "curl"
+              - "--fail"
+              - "--silent"
+              - "--output"
+              - "/dev/null"
+              - "--head"
+              - "--write-out"
+              - "%{http_code}"
+              - !Sub "http://localhost:${ServiceOneContainerPort}/${ServiceOneUriPrefix}/"
+            Interval: 10
+            Timeout: 3
+            Retries: 5
+            StartPeriod: 3
+          PortMappings:
+            - ContainerPort: !Ref "ServiceOneContainerPort"
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref ServiceOneContainerName
+          # for extra security, we put the secrets inside a file in S3
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          Environment:
+            - Name: REDIS_HOST
+              Value: !Ref RedisContainerName
+            - Name: PORT
+              Value: !Ref "ServiceOneContainerPort"
+            - Name: APP_PREFIX
+              Value: !Ref "ServiceOneUriPrefix"
+
+        - Name: !Ref ServiceTwoContainerName
+          Image: !Ref "ServiceTwoImageUrl"
+          MemoryReservation: !Ref MemoryReservation
+          HealthCheck:
+            Command:
+              - "curl"
+              - "--fail"
+              - "--silent"
+              - "--output"
+              - "/dev/null"
+              - "--head"
+              - "--write-out"
+              - "%{http_code}"
+              - !Sub "http://localhost:${ServiceTwoContainerPort}/${ServiceTwoUriPrefix}/"
+            Interval: 10
+            Timeout: 3
+            Retries: 5
+            StartPeriod: 3
+          PortMappings:
+            - ContainerPort: !Ref "ServiceTwoContainerPort"
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref ServiceTwoContainerName
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          Environment:
+            - Name: REDIS_HOST
+              Value: !Ref RedisContainerName
+            - Name: PORT
+              Value: !Ref "ServiceTwoContainerPort"
+            - Name: APP_PREFIX
+              Value: !Ref "ServiceTwoUriPrefix"
+          DependsOn:
+            - ContainerName: !Ref ServiceThreeContainerName
+              Condition: HEALTHY
+            - ContainerName: !Ref RedisContainerName
+              Condition: HEALTHY
+
+        - Name: !Ref ServiceThreeContainerName
+          Image: !Ref "ServiceThreeImageUrl"
+          Essential: false
+          MemoryReservation: !Ref MemoryReservation
+          Command:
+            - "/bin/bash"
+            - "-c"
+            - !Sub "uwsgi -M --http 0.0.0.0:${ServiceThreeContainerPort} -w app.main:app --processes 4"
+          HealthCheck:
+            Command:
+              - "curl"
+              - "--fail"
+              - "--silent"
+              - "--output"
+              - "/dev/null"
+              - "--head"
+              - "--write-out"
+              - "%{http_code}"
+              - !Sub "http://localhost:${ServiceThreeContainerPort}/${ServiceThreeUriPrefix}/"
+            Interval: 10
+            Timeout: 3
+            Retries: 5
+            StartPeriod: 3
+          PortMappings:
+            - ContainerPort: !Ref "ServiceThreeContainerPort"
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref ServiceThreeContainerName
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          Environment:
+            - Name: PORT
+              Value: !Ref "ServiceThreeContainerPort"
+            - Name: APP_PREFIX
+              Value: !Ref "ServiceThreeUriPrefix"
+          DependsOn:
+            - ContainerName: !Sub ${ServiceThreeContainerName}-bootstrap
+              Condition: SUCCESS
+            - ContainerName: !Ref PostgresContainerName
+              Condition: HEALTHY
+
+        - Name: !Sub ${ServiceThreeContainerName}-bootstrap
+          Image: !Ref "ServiceThreeImageUrl"
+          MemoryReservation: !Ref MemoryReservation
+          Essential: false # dependent services can't be essential
+          Command:
+            - "/bin/bash"
+            - "-c"
+            - "alembic upgrade head && exit 0"
+          DependsOn:
+            - ContainerName: !Ref PostgresContainerName
+              Condition: HEALTHY
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Sub ${ServiceThreeContainerName}-bootstrap
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+
+        - Name: !Ref RedisContainerName
+          Image: !Ref RedisImageUrl
+          Essential: false
+          MemoryReservation: !Ref MemoryReservation
+          HealthCheck:
+            Command: ["/bin/sh", "-c", "exec redis-cli ping || exit 1"]
+            Interval: 5
+            Retries: 10
+            StartPeriod: 3
+          PortMappings:
+            - ContainerPort: 6379
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref RedisContainerName
+
+        - Name: !Ref PostgresContainerName
+          Image: !Ref PostgresImageUrl
+          MemoryReservation: !Ref MemoryReservation
+          HealthCheck:
+            Command:
+              - "/bin/sh"
+              - "-c"
+              - !Sub 'psql -h localhost -U postgres -c "select 1" ${ServiceThreeDatabaseName} --quiet || exit 1'
+            Interval: 10
+            Timeout: 3
+            Retries: 5
+            StartPeriod: 3
+          Essential: false
+          PortMappings:
+            - ContainerPort: 5432
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Sub ${EnvTag}-${StackName}
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref PostgresContainerName
+          EnvironmentFiles:
+            - Type: s3
+              Value: !Ref "EnvFileArn"
+          MountPoints:
+            - ContainerPath: /var/lib/postgresql/data
+              SourceVolume: postgres-data
+              ReadOnly: false
+      Volumes:
+        # we can get fancy and bind this to RDS but that's a story for another day
+        - Name: postgres-data
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ServiceOneLoadBalancerRule
+      - ServiceTwoLoadBalancerRule
+      - ServiceThreeLoadBalancerRule
+    Properties:
+      ServiceName: !Ref StackName
+      Cluster:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:ClusterName
+      LaunchType: !Ref "LaunchType"
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      DesiredCount: !Ref "DesiredCount"
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:EcsHostSecurityGroup
+          Subnets:
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetOne
+            - Fn::ImportValue: !Sub ${EnvTag}-infra:PrivateSubnetTwo
+      TaskDefinition: !Ref "TaskDefinition"
+      LoadBalancers:
+        - ContainerName: !Ref ServiceOneContainerName
+          ContainerPort: !Ref "ServiceOneContainerPort"
+          TargetGroupArn: !Ref "ServiceOneTargetGroup"
+        - ContainerName: !Ref "ServiceTwoContainerName"
+          ContainerPort: !Ref "ServiceTwoContainerPort"
+          TargetGroupArn: !Ref "ServiceTwoTargetGroup"
+        - ContainerName: !Ref "ServiceThreeContainerName"
+          ContainerPort: !Ref "ServiceThreeContainerPort"
+          TargetGroupArn: !Ref "ServiceThreeTargetGroup"
+
+  ServiceOneLoadBalancerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref "ServiceOneTargetGroup"
+          Type: "forward"
+      Conditions:
+        - Field: path-pattern
+          Values: [!Sub "/${ServiceOneUriPrefix}/*"]
+        - Field: host-header
+          Values: [!Ref FirstTwoServicesStackHost]
+      ListenerArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PublicListener
+      Priority: !Ref "ServiceOneLoadBalancerPriority"
+  ServiceOneTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ServiceOneContainerName}-healthcheck
+      HealthCheckIntervalSeconds: !Ref "HealthCheckIntervalSeconds"
+      HealthCheckPath: !Sub /${ServiceOneUriPrefix}/
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: !Ref "HealthCheckTimeoutSeconds"
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: !Ref "ServiceOneContainerPort"
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:VPCId
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref "DeregistrationDelay"
+
+  ServiceTwoLoadBalancerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref "ServiceTwoTargetGroup"
+          Type: "forward"
+      Conditions:
+        - Field: path-pattern
+          Values: [!Sub "/${ServiceTwoUriPrefix}/*"]
+        - Field: host-header
+          Values: [!Ref FirstTwoServicesStackHost]
+      ListenerArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PublicListener
+      Priority: !Ref "ServiceTwoLoadBalancerPriority"
+  ServiceTwoTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ServiceTwoContainerName}-healthcheck
+      HealthCheckIntervalSeconds: !Ref "HealthCheckIntervalSeconds"
+      HealthCheckPath: !Sub /${ServiceTwoUriPrefix}/
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: !Ref "HealthCheckTimeoutSeconds"
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: !Ref "ServiceTwoContainerPort"
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:VPCId
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref "DeregistrationDelay"
+
+  ServiceThreeLoadBalancerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref "ServiceThreeTargetGroup"
+          Type: "forward"
+      Conditions:
+        - Field: path-pattern
+          Values: [!Sub "/${ServiceThreeUriPrefix}/*"]
+        - Field: host-header
+          Values: [!Ref LastServiceStackHost]
+      ListenerArn:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:PublicListener
+      Priority: !Ref "ServiceThreeLoadBalancerPriority"
+  ServiceThreeTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ServiceThreeContainerName}-healthcheck
+      HealthCheckIntervalSeconds: !Ref "HealthCheckIntervalSeconds"
+      HealthCheckPath: !Sub /${ServiceThreeUriPrefix}/
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: !Ref "HealthCheckTimeoutSeconds"
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: !Ref "ServiceThreeContainerPort"
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Fn::ImportValue: !Sub ${EnvTag}-infra:VPCId
+      TargetGroupAttributes:
+        - Key: "deregistration_delay.timeout_seconds"
+          Value: !Ref "DeregistrationDelay"
+
+Outputs:
+  FirstTwoServicesURL:
+    Value: !Sub https://${FirstTwoServicesStackHost}
+  LastServiceURL:
+    Value: !Sub https://${LastServiceStackHost}
