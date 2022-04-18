@@ -148,8 +148,11 @@ Resources:
             - Type: s3
               Value: !Ref "EnvFileArn"
           Environment:
+            # because they are on the same TaskDefinition, they can communicate
+            # using `localhost`, otherwise, they would have to go through
+            # Service to talk to each other, or even through the internet!
             - Name: REDIS_HOST
-              Value: !Ref RedisContainerName
+              Value: localhost
             - Name: PORT
               Value: !Ref "ServiceOneContainerPort"
             - Name: APP_PREFIX
@@ -186,7 +189,7 @@ Resources:
               Value: !Ref "EnvFileArn"
           Environment:
             - Name: REDIS_HOST
-              Value: !Ref RedisContainerName
+              Value: localhost
             - Name: PORT
               Value: !Ref "ServiceTwoContainerPort"
             - Name: APP_PREFIX
@@ -236,6 +239,8 @@ Resources:
               Value: !Ref "ServiceThreeContainerPort"
             - Name: APP_PREFIX
               Value: !Ref "ServiceThreeUriPrefix"
+            - Name: DB_CONNECTION_STRING
+              Value: !Sub postgres://postgres:postgres@localhost:5432/${ServiceThreeDatabaseName}
           DependsOn:
             - ContainerName: !Sub ${ServiceThreeContainerName}-bootstrap
               Condition: SUCCESS
@@ -251,6 +256,8 @@ Resources:
             - "-c"
             - "alembic upgrade head && exit 0"
           DependsOn:
+            # this HEALTHY condition requires that you either specify it in the
+            # Dockerfile or here in the CloudFormation template
             - ContainerName: !Ref PostgresContainerName
               Condition: HEALTHY
           LogConfiguration:
@@ -302,9 +309,13 @@ Resources:
               awslogs-group: !Sub ${EnvTag}-${StackName}
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: !Ref PostgresContainerName
-          EnvironmentFiles:
-            - Type: s3
-              Value: !Ref "EnvFileArn"
+          Environment:
+            - Name: POSTGRES_DB
+              Value: !Ref ServiceThreeDatabaseName
+            - Name: POSTGRES_USER
+              Value: postgres
+            - Name: POSTGRES_PASSWORD
+              Value: postgres
           MountPoints:
             - ContainerPath: /var/lib/postgresql/data
               SourceVolume: postgres-data
