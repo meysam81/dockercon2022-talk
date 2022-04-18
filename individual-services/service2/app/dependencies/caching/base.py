@@ -21,10 +21,3 @@ class BaseCache(metaclass=abc.ABCMeta):
         :param key: key to set value to cache.
         :param value: value to set to cache.
         """
-
-    @abc.abstractmethod
-    def delete(self, key):
-        """
-        Delete value from cache.
-        :param key: key to delete value from cache.
-        """

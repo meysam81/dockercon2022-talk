@@ -1,7 +1,6 @@
 alembic<2,>=1.7
 fastapi<1,>=0.75
 fastapi-crudrouter<1,>=0.8
-psycopg2-binary<3,>=2.9
 pydantic[dotenv]<2,>=1.9
-sqlalchemy<2,>=1.4
+sqlalchemy[postgresql_psycopg2binary]<2,>=1.4
 uvicorn<1,>=0.17
