@@ -14,8 +14,11 @@ services:
     networks:
       - svc2
       - svc3
+      - redis
 
 networks:
   svc2:
   svc3:
+    external: true
+  redis:
     external: true

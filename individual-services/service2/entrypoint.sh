@@ -1,7 +1,7 @@
 #!/bin/sh
 set -ex
 
-if [[ "$DEBUG" ]]; then
+if [[ ! -z "$DEBUG" ]]; then
     export RELOAD="--reload"
 fi
 

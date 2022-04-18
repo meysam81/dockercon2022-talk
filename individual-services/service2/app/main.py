@@ -2,11 +2,11 @@
 import os
 from importlib import import_module
 
-from app.settings import Settings
+from app.dependencies.caching.redis_cache import RedisCache
+from app.settings import config
 from fastapi import APIRouter, FastAPI
 
 app = FastAPI()
-config = Settings()
 
 router = APIRouter()
 
@@ -29,6 +29,7 @@ for api, prefix in APIS.items():
     router.include_router(import_module(import_name).router, prefix=prefix)
 
 app.include_router(router, prefix=config.APP_PREFIX)
+app.state.cache = RedisCache()  # NOTE: dependency injection
 
 if config.DEBUG:
     from collections import defaultdict as dd

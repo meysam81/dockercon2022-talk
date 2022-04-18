@@ -60,10 +60,12 @@ domains to the local machine (and ultimately to the `traefik` service).
 
 #### 1. Separately
 
-1. If you want to run the services separately, first, head to `traefik` directory
-and bring up the app: `docker-compose up -d`. Now you're able to head to this
-link to see your services and endpoints: <http://localhost:8080>
-2. Head to each `serviceN` directory where `N` is the number of the service
+1. If you want to run the services separately, head to the
+`individual-services` directory.
+2. First, head to `traefik` directory and bring
+up the app: `docker-compose up -d`. Now you're able to head to this link to see
+your services and endpoints: <http://localhost:8080>
+3. Head to each `serviceN` directory where `N` is the number of the service
 and then bring up that service (again `docker-compose up -d`).
 
 #### 2. Entire platform

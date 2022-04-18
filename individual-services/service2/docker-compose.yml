@@ -11,6 +11,7 @@ services:
       - PORT=8000
       - DEBUG=1
       - APP_PREFIX
+      - REDIS_HOST=redis
     volumes:
       - "./app:/service/app:ro"
     expose:
@@ -20,3 +21,13 @@ services:
       - "traefik.http.routers.svc${SVC_ID}.rule=Host(`svc.dockercon2022.com`) && PathPrefix(`${APP_PREFIX}`, `/docs`, `/openapi.json`)"
     extra_hosts:
       - "svc-crud.dockercon2022.com:172.17.0.1"
+
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379"
+    labels:
+      - "traefik.enable=false"

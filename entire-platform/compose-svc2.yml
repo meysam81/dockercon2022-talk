@@ -21,6 +21,9 @@ services:
       - "svc-crud.dockercon2022.com:172.17.0.1"
     networks:
       - svc2
+      - redis
 
 networks:
   svc2:
+  redis:
+    external: true

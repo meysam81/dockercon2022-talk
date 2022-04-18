@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    labels:
+      - "traefik.enable=false"
+    networks:
+      - redis
+
+networks:
+  redis:
