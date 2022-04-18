@@ -3,6 +3,7 @@
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
+- [Architecture](#architecture)
 - [Structure of the repo](#structure-of-the-repo)
   - [How to run it?](#how-to-run-it)
     - [Prerequisites](#prerequisites)
@@ -23,9 +24,21 @@ presented as a talk to [DockerCon 2022](https://mobile.twitter.com/dockercon).
 To run the entire stack all in one place, just head to the `entire-platform`
 directory and run `docker-compose up -d`.
 
-**IMPORTANT NOTE**: Don't forget to
-[update](https://github.com/docker/compose/releases) your docker-compose binary
-to v2.
+## Architecture
+
+The design of the platform is simple and straightforward, containing three apps
+that are all web-apps listening on a HTTP port.
+
+Service2 can also contact Service3 for a query in which it caches for future
+reference. The invalidation of the cache is nothing special; it expires after
+10 minutes (configurable).
+
+The third service is a sample CRUD app that is talking to PostgreSQL for its
+processing.
+
+Here's an overview of the system:
+
+![arch](docs/static/arch.png)
 
 ## Structure of the repo
 
@@ -45,6 +58,10 @@ placed next to others, but, again, in real life scenarios, it would have had
 its own repository.
 
 ### How to run it?
+
+**IMPORTANT NOTE**: Don't forget to
+[update](https://github.com/docker/compose/releases) your docker-compose binary
+to v2.
 
 #### Prerequisites
 
